@@ -1,20 +1,28 @@
-require('dotenv').config();
-const express = require('express');
-const { GoogleGenAI, Type } = require('@google/genai');
+// backend/src/server.js
+import 'dotenv/config';
+import express from 'express';
+import { GoogleGenAI, Type } from '@google/genai';
+import { SYSTEM_INSTRUCTION } from './systemInstruction.js';
 
 const app = express();
 app.use(express.json());
 
-// --- Config ---
+// --- Configuration ---
 const API_KEYS = (process.env.API_KEY || '').split(',').map(k => k.trim()).filter(Boolean);
 let currentKeyIndex = 0;
 const MODEL_NAME = 'gemini-2.5-flash';
-if (!API_KEYS.length) { console.error("No API keys found"); process.exit(1); }
-const getClient = () => new GoogleGenAI({ apiKey: API_KEYS[currentKeyIndex] });
-const rotateKey = () => { currentKeyIndex = (currentKeyIndex + 1) % API_KEYS.length; };
 
-// --- System Instruction & Response Schema ---
-const { SYSTEM_INSTRUCTION } = require('./systemInstruction');
+if (!API_KEYS.length) {
+  console.error("❌ No API keys found. Please add API_KEY in your .env");
+  process.exit(1);
+}
+
+const getClient = () => new GoogleGenAI({ apiKey: API_KEYS[currentKeyIndex] });
+const rotateKey = () => {
+  currentKeyIndex = (currentKeyIndex + 1) % API_KEYS.length;
+};
+
+// --- Response Schema ---
 const responseSchema = {
   type: Type.OBJECT,
   properties: {
@@ -29,10 +37,12 @@ const responseSchema = {
 // --- Core Logic ---
 async function generateAgentResponse(message, history = []) {
   let attempts = 0;
+
   while (attempts < API_KEYS.length) {
     try {
       const ai = getClient();
       const prompt = `User Message: ${message}`;
+
       const response = await ai.models.generateContent({
         model: MODEL_NAME,
         contents: [...history, { role: 'user', parts: [{ text: prompt }] }],
@@ -43,29 +53,46 @@ async function generateAgentResponse(message, history = []) {
           temperature: 0.7
         }
       });
+
       return JSON.parse(response.text);
-    } catch(e) {
+
+    } catch (error) {
       attempts++;
       rotateKey();
-      if(attempts >= API_KEYS.length) throw e;
+      if (attempts >= API_KEYS.length) throw error;
     }
   }
 }
 
 // --- API Endpoints ---
-app.get('/', (_, res) => res.send('TSANTA API is running'));
+app.get('/', (_, res) => res.send('✅ TSANTA API is running'));
 
-app.post('/api/agent/chat', async (req,res) => {
+app.post('/api/agent/chat', async (req, res) => {
   try {
     const { message, history } = req.body;
+    if (!message) {
+      return res.status(400).json({
+        reply: "Veuillez fournir un message",
+        intent: "unknown",
+        detected_language: "mg",
+        next_action: "none"
+      });
+    }
+
     const result = await generateAgentResponse(message, history || []);
     res.json(result);
-  } catch(err) {
-    console.error(err);
-    res.status(500).json({ reply:"Misy olana kely.", intent:"unknown", detected_language:"mg", next_action:"none" });
+
+  } catch (error) {
+    console.error("❌ TSANTA Error:", error);
+    res.status(500).json({
+      reply: "Misy olana kely.",
+      intent: "unknown",
+      detected_language: "mg",
+      next_action: "none"
+    });
   }
 });
 
 // --- Start Server ---
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`TSANTA API running on port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 TSANTA API running on port ${PORT}`));
