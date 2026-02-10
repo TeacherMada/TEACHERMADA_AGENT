@@ -3,7 +3,9 @@ import 'dotenv/config';
 import express from 'express';
 import { GoogleGenAI, Type } from '@google/genai';
 import { SYSTEM_INSTRUCTION } from './agent/systemInstruction.js';
+import agentRoute from './routes/agent.route.js';
 
+app.use('/api/agent', agentRoute);
 const app = express();
 app.use(express.json());
 
