@@ -2,7 +2,7 @@
 import 'dotenv/config';
 import express from 'express';
 import { GoogleGenAI, Type } from '@google/genai';
-import { SYSTEM_INSTRUCTION } from './systemInstruction.js';
+import { SYSTEM_INSTRUCTION } from './agent/systemInstruction.js';
 
 const app = express();
 app.use(express.json());
