@@ -3,44 +3,37 @@ import { generateAgentResponse } from '../agent/tsanta.service.js';
 
 const router = express.Router();
 
-/* =========================
-   HEALTH
-========================= */
-router.get('/health', (req, res) => {
-  res.json({ success: true, service: 'agent', status: 'ok' });
-});
-
-/* =========================
-   CHAT (GET)
-========================= */
+// GET endpoint (Messenger compatible)
 router.get('/chat', async (req, res) => {
-  const { prompt, id } = req.query;
-
-  if (!prompt) {
-    return res.status(400).json({
-      success: false,
-      response: 'Paramètre "prompt" manquant'
-    });
-  }
-
   try {
-    const result = await generateAgentResponse(prompt, []);
+
+    const { prompt, id } = req.query;
+
+    if (!prompt) {
+      return res.status(400).json({
+        success: false,
+        response: 'Paramètre "prompt" manquant'
+      });
+    }
+
+    const userId = id || "anonymous";
+
+    const result = await generateAgentResponse(prompt, userId);
 
     res.json({
       success: true,
-      user_id: id || null,
+      user_id: userId,
       response: result.reply,
       intent: result.intent,
       language: result.detected_language,
       next_action: result.next_action
     });
 
-  } catch (err) {
-    console.error('❌ Agent Error:', err.message);
-
+  } catch (error) {
+    console.error("❌ Route Error:", error);
     res.status(500).json({
       success: false,
-      response: 'Erreur système. Réessayez plus tard.'
+      response: "Erreur système. Réessayez plus tard."
     });
   }
 });
