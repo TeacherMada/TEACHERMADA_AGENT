@@ -26,36 +26,23 @@ if (!API_KEYS.length) {
 // =======================
 const MODELS = [
   "gemini-3-flash-preview",
-  "gemini-2.5-pro",
   "gemini-2.5-flash",
-  "gemini-2.0-flash"
+  "gemini-2.5-pro",
+  "gemini-2.0-flash" // optionnel, stable gratuit
 ];
-
-let currentModelIndex = 0;
-let currentKeyIndex = 0;
 
 // =======================
 // 🔄 UTILITIES
 // =======================
-const getClient = () =>
-  new GoogleGenAI({ apiKey: API_KEYS[currentKeyIndex] });
-
-const rotateKey = () => {
-  currentKeyIndex = (currentKeyIndex + 1) % API_KEYS.length;
-};
-
-const rotateModel = () => {
-  currentModelIndex++;
-  currentKeyIndex = 0; // reset keys for new model
-};
-
 const isQuotaError = (error) => {
-  const msg = error?.message?.toLowerCase() || "";
+  const msg = (error?.message || "").toLowerCase();
   return (
     msg.includes("quota") ||
     msg.includes("rate limit") ||
     msg.includes("429") ||
-    msg.includes("exceeded")
+    msg.includes("exceeded") ||
+    msg.includes("permission_denied") ||
+    msg.includes("leaked")
   );
 };
 
@@ -70,77 +57,61 @@ export async function generateAgentResponse(message, userId) {
 
   const history = userMemory.get(userId);
 
-  // Nombre total de tentatives possibles
-  const maxAttempts = MODELS.length * API_KEYS.length;
-  let attempts = 0;
+  // Parcours tous les modèles et clés
+  for (let modelIndex = 0; modelIndex < MODELS.length; modelIndex++) {
+    const currentModel = MODELS[modelIndex];
 
-  while (attempts < maxAttempts) {
-    try {
+    for (let keyIndex = 0; keyIndex < API_KEYS.length; keyIndex++) {
+      const apiKey = API_KEYS[keyIndex];
+      const ai = new GoogleGenAI({ apiKey });
 
-      const ai = getClient();
-      const currentModel = MODELS[currentModelIndex];
+      try {
+        console.log(`🤖 Trying Model: ${currentModel} | Key: ${keyIndex + 1}`);
 
-      console.log(`🤖 Trying Model: ${currentModel} | Key: ${currentKeyIndex + 1}`);
+        const contents = [
+          ...history,
+          { role: "user", parts: [{ text: message }] }
+        ];
 
-      const contents = [
-        ...history,
-        { role: "user", parts: [{ text: message }] }
-      ];
+        const response = await ai.models.generateContent({
+          model: currentModel,
+          contents,
+          config: {
+            systemInstruction: SYSTEM_INSTRUCTION,
+            responseMimeType: "application/json",
+            responseSchema,
+            temperature: 0.7
+          }
+        });
 
-      const response = await ai.models.generateContent({
-        model: currentModel,
-        contents,
-        config: {
-          systemInstruction: SYSTEM_INSTRUCTION,
-          responseMimeType: "application/json",
-          responseSchema,
-          temperature: 0.7
+        const parsed = JSON.parse(response.text);
+
+        // 🔥 Save user memory
+        history.push(
+          { role: "user", parts: [{ text: message }] },
+          { role: "model", parts: [{ text: parsed.reply }] }
+        );
+
+        // 🔥 Limit memory
+        if (history.length > MAX_HISTORY * 2) history.splice(0, 2);
+
+        return parsed;
+
+      } catch (error) {
+        console.warn(`❌ Error with model ${currentModel} key ${keyIndex + 1}:`, error?.message || error);
+
+        if (isQuotaError(error)) {
+          console.log("⚠️ Quota or key issue → try next key");
+          continue; // passe à la clé suivante
+        } else {
+          console.log("⚠️ Non-quota error → try next key");
+          continue; // passe à la clé suivante
         }
-      });
-
-      const parsed = JSON.parse(response.text);
-
-      // 🔥 SAVE MEMORY
-      history.push(
-        { role: "user", parts: [{ text: message }] },
-        { role: "model", parts: [{ text: parsed.reply }] }
-      );
-
-      // 🔥 LIMIT MEMORY
-      if (history.length > MAX_HISTORY * 2) {
-        history.splice(0, 2);
-      }
-
-      return parsed;
-
-    } catch (error) {
-
-      attempts++;
-
-      console.error("❌ Error:", error.message);
-
-      if (isQuotaError(error)) {
-        console.log("⚠️ Quota reached → Rotating Key");
-
-        rotateKey();
-
-        // Si on revient à la clé 0 → toutes clés testées
-        if (currentKeyIndex === 0) {
-          console.log("⚠️ All keys exhausted → Switching Model");
-          rotateModel();
-        }
-
-      } else {
-        // Si erreur non quota → ne pas bloquer
-        rotateKey();
-      }
-
-      // Si plus de modèles disponibles
-      if (currentModelIndex >= MODELS.length) {
-        throw new Error("All models & keys exhausted");
       }
     }
+
+    console.log(`⚠️ All keys failed for model ${currentModel} → Switching model`);
   }
 
-  throw new Error("Service temporarily unavailable");
+  throw new Error("All models & keys exhausted or service temporarily unavailable");
 }
