@@ -5,10 +5,10 @@ Déploiement sur Render
 Plateforme recommandée : Render + web services 
 
 **Configuration** :
-Root Directory: backend
-Build Command: npm install
-Start Command: npm start
-Environment: Node
+1. Root Directory: backend
+2. Build Command: npm install
+3. Start Command: npm start
+4. Environment: Node
 
 Ajouter dans Render → Environment Variables :
 
